@@ -2,8 +2,8 @@ import React, { useCallback, useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Upload, 
-  File, 
-  Image, 
+  File as FileIcon, 
+  Image as ImageIcon, 
   Video, 
   Music, 
   FileText, 
@@ -52,7 +52,7 @@ const FileUploadZone: React.FC<FileUploadZoneProps> = ({
     const type = file.type.split('/')[0];
     switch (type) {
       case 'image':
-        return <Image className="h-8 w-8" />;
+        return <ImageIcon className="h-8 w-8" />;
       case 'video':
         return <Video className="h-8 w-8" />;
       case 'audio':
@@ -65,9 +65,9 @@ const FileUploadZone: React.FC<FileUploadZoneProps> = ({
         if (file.type.includes('zip') || file.type.includes('rar')) {
           return <Archive className="h-8 w-8" />;
         }
-        return <File className="h-8 w-8" />;
+        return <FileIcon className="h-8 w-8" />;
       default:
-        return <File className="h-8 w-8" />;
+        return <FileIcon className="h-8 w-8" />;
     }
   };
 
