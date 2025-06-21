@@ -29,7 +29,17 @@ import {
   Move,
   MousePointer,
   Square,
-  Circle
+  Circle,
+  Home,
+  Folder,
+  Copy,
+  Trash2,
+  Edit,
+  Maximize2,
+  Minimize2,
+  Monitor,
+  Smartphone,
+  Tablet
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -71,6 +81,8 @@ const AdvancedImageViewer: React.FC<AdvancedImageViewerProps> = ({
   const [fitMode, setFitMode] = useState<'fit' | 'fill' | 'actual'>('fit');
   const [flipHorizontal, setFlipHorizontal] = useState(false);
   const [flipVertical, setFlipVertical] = useState(false);
+  const [showToolbar, setShowToolbar] = useState(true);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   
   // Image adjustments
   const [brightness, setBrightness] = useState(100);
@@ -81,8 +93,28 @@ const AdvancedImageViewer: React.FC<AdvancedImageViewerProps> = ({
   const [sepia, setSepia] = useState(0);
   const [grayscale, setGrayscale] = useState(0);
   
+  // ImageGlass-like features
+  const [slideshow, setSlideshow] = useState(false);
+  const [slideshowInterval, setSlideshowInterval] = useState(3000);
+  const [showNavigationDots, setShowNavigationDots] = useState(true);
+  const [enableMouseGestures, setEnableMouseGestures] = useState(true);
+  const [backgroundOpacity, setBackgroundOpacity] = useState(95);
+  
   const imageRef = useRef<HTMLImageElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // Auto-hide controls timer
+  const hideControlsTimer = useRef<NodeJS.Timeout>();
+
+  const resetHideTimer = useCallback(() => {
+    if (hideControlsTimer.current) {
+      clearTimeout(hideControlsTimer.current);
+    }
+    setShowControls(true);
+    hideControlsTimer.current = setTimeout(() => {
+      setShowControls(false);
+    }, 3000);
+  }, []);
 
   useEffect(() => {
     if (isOpen) {
@@ -99,16 +131,33 @@ const AdvancedImageViewer: React.FC<AdvancedImageViewerProps> = ({
       setBlur(0);
       setSepia(0);
       setGrayscale(0);
+      resetHideTimer();
     }
-  }, [isOpen, src]);
+  }, [isOpen, src, resetHideTimer]);
+
+  // Slideshow effect
+  useEffect(() => {
+    if (slideshow && images.length > 1) {
+      const interval = setInterval(() => {
+        onNext?.();
+      }, slideshowInterval);
+      return () => clearInterval(interval);
+    }
+  }, [slideshow, slideshowInterval, onNext, images.length]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!isOpen) return;
       
+      resetHideTimer();
+      
       switch (e.key) {
         case 'Escape':
-          onClose();
+          if (isFullscreen) {
+            setIsFullscreen(false);
+          } else {
+            onClose();
+          }
           break;
         case 'ArrowLeft':
           onPrevious?.();
@@ -140,14 +189,46 @@ const AdvancedImageViewer: React.FC<AdvancedImageViewerProps> = ({
           break;
         case ' ':
           e.preventDefault();
-          setShowControls(!showControls);
+          setSlideshow(!slideshow);
+          break;
+        case 'F11':
+          e.preventDefault();
+          setIsFullscreen(!isFullscreen);
+          break;
+        case 'h':
+          setFlipHorizontal(!flipHorizontal);
+          break;
+        case 'v':
+          setFlipVertical(!flipVertical);
+          break;
+        case '1':
+          setFitMode('actual');
+          setZoom(1);
+          break;
+        case '2':
+          setFitMode('fit');
+          break;
+        case '3':
+          setFitMode('fill');
           break;
       }
     };
 
+    const handleMouseMove = () => {
+      resetHideTimer();
+    };
+
     document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose, onNext, onPrevious, onToggleFavorite, showInfo, showThumbnails, showControls]);
+    document.addEventListener('mousemove', handleMouseMove);
+    
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      document.removeEventListener('mousemove', handleMouseMove);
+      if (hideControlsTimer.current) {
+        clearTimeout(hideControlsTimer.current);
+      }
+    };
+  }, [isOpen, onClose, onNext, onPrevious, onToggleFavorite, showInfo, showThumbnails, slideshow, isFullscreen, flipHorizontal, flipVertical, resetHideTimer]);
 
   const handleZoomIn = useCallback(() => {
     setZoom(prev => Math.min(prev * 1.2, 10));
@@ -180,23 +261,23 @@ const AdvancedImageViewer: React.FC<AdvancedImageViewerProps> = ({
   }, []);
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    if (zoom > 1) {
+    if (zoom > 1 || fitMode === 'actual') {
       setIsDragging(true);
       setDragStart({
         x: e.clientX - position.x,
         y: e.clientY - position.y
       });
     }
-  }, [zoom, position]);
+  }, [zoom, position, fitMode]);
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
-    if (isDragging && zoom > 1) {
+    if (isDragging && (zoom > 1 || fitMode === 'actual')) {
       setPosition({
         x: e.clientX - dragStart.x,
         y: e.clientY - dragStart.y
       });
     }
-  }, [isDragging, zoom, dragStart]);
+  }, [isDragging, zoom, dragStart, fitMode]);
 
   const handleMouseUp = useCallback(() => {
     setIsDragging(false);
@@ -204,12 +285,13 @@ const AdvancedImageViewer: React.FC<AdvancedImageViewerProps> = ({
 
   const handleWheel = useCallback((e: React.WheelEvent) => {
     e.preventDefault();
+    resetHideTimer();
     if (e.deltaY < 0) {
       handleZoomIn();
     } else {
       handleZoomOut();
     }
-  }, [handleZoomIn, handleZoomOut]);
+  }, [handleZoomIn, handleZoomOut, resetHideTimer]);
 
   const handleDownload = useCallback(() => {
     const link = document.createElement('a');
@@ -217,6 +299,14 @@ const AdvancedImageViewer: React.FC<AdvancedImageViewerProps> = ({
     link.download = alt || 'image';
     link.click();
   }, [src, alt]);
+
+  const handleDoubleClick = useCallback(() => {
+    if (zoom === 1) {
+      handleZoomIn();
+    } else {
+      resetTransform();
+    }
+  }, [zoom, handleZoomIn, resetTransform]);
 
   const CustomSlider = ({ 
     value, 
@@ -265,100 +355,133 @@ const AdvancedImageViewer: React.FC<AdvancedImageViewerProps> = ({
   return (
     <AnimatePresence>
       <motion.div
-        className="fixed inset-0 z-50 bg-black/95 backdrop-blur-sm"
+        className={cn(
+          "fixed inset-0 z-50 backdrop-blur-sm",
+          isFullscreen ? "bg-black" : "bg-black"
+        )}
+        style={{ backgroundColor: `rgba(0, 0, 0, ${backgroundOpacity / 100})` }}
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
-        onMouseEnter={() => setShowControls(true)}
-        onMouseLeave={() => setShowControls(false)}
       >
-        {/* Top Controls */}
+        {/* Top Toolbar - ImageGlass Style */}
         <AnimatePresence>
-          {showControls && (
+          {showControls && showToolbar && (
             <motion.div
-              className="absolute top-4 left-4 right-4 flex justify-between items-center z-10"
-              initial={{ y: -20, opacity: 0 }}
+              className="absolute top-0 left-0 right-0 bg-black/80 backdrop-blur-md border-b border-white/10 z-20"
+              initial={{ y: -60, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
-              exit={{ y: -20, opacity: 0 }}
+              exit={{ y: -60, opacity: 0 }}
             >
-              <div className="flex items-center gap-2">
-                <Button
-                  onClick={onClose}
-                  variant="ghost"
-                  size="icon"
-                  className="text-white hover:bg-white/20 hover:text-white backdrop-blur-sm"
-                >
-                  <X className="h-5 w-5" />
-                </Button>
-                <span className="text-white/70 text-sm">
-                  {images.length > 0 && `${currentIndex + 1} / ${images.length}`}
-                </span>
-                <span className="text-white/70 text-sm">•</span>
-                <span className="text-white/70 text-sm">{alt}</span>
-              </div>
+              <div className="flex items-center justify-between px-4 py-3">
+                {/* Left Section */}
+                <div className="flex items-center gap-2">
+                  <Button
+                    onClick={onClose}
+                    variant="ghost"
+                    size="icon"
+                    className="text-white hover:bg-white/20"
+                  >
+                    <X className="h-5 w-5" />
+                  </Button>
+                  <div className="h-6 w-px bg-white/20" />
+                  <Button
+                    onClick={() => setShowThumbnails(!showThumbnails)}
+                    variant="ghost"
+                    size="icon"
+                    className={cn(
+                      "text-white hover:bg-white/20",
+                      showThumbnails && "bg-white/20"
+                    )}
+                  >
+                    <Grid className="h-5 w-5" />
+                  </Button>
+                  <Button
+                    onClick={() => setSlideshow(!slideshow)}
+                    variant="ghost"
+                    size="icon"
+                    className={cn(
+                      "text-white hover:bg-white/20",
+                      slideshow && "bg-white/20"
+                    )}
+                  >
+                    <Zap className="h-5 w-5" />
+                  </Button>
+                </div>
 
-              <div className="flex items-center gap-2">
-                <Button
-                  onClick={() => setShowThumbnails(!showThumbnails)}
-                  variant="ghost"
-                  size="icon"
-                  className={cn(
-                    "text-white hover:bg-white/20 hover:text-white backdrop-blur-sm",
-                    showThumbnails && "bg-white/20"
+                {/* Center Section - File Info */}
+                <div className="flex items-center gap-4 text-white">
+                  <span className="text-sm font-medium">{alt}</span>
+                  {images.length > 0 && (
+                    <span className="text-sm text-white/70">
+                      {currentIndex + 1} / {images.length}
+                    </span>
                   )}
-                >
-                  <Grid className="h-5 w-5" />
-                </Button>
-                <Button
-                  onClick={() => setShowInfo(!showInfo)}
-                  variant="ghost"
-                  size="icon"
-                  className={cn(
-                    "text-white hover:bg-white/20 hover:text-white backdrop-blur-sm",
-                    showInfo && "bg-white/20"
-                  )}
-                >
-                  <Info className="h-5 w-5" />
-                </Button>
-                <Button
-                  onClick={onToggleFavorite}
-                  variant="ghost"
-                  size="icon"
-                  className={cn(
-                    "text-white hover:bg-white/20 hover:text-white backdrop-blur-sm",
-                    isFavorite && "text-red-500"
-                  )}
-                >
-                  <Heart className={cn("h-5 w-5", isFavorite && "fill-current")} />
-                </Button>
-                <Button
-                  onClick={handleDownload}
-                  variant="ghost"
-                  size="icon"
-                  className="text-white hover:bg-white/20 hover:text-white backdrop-blur-sm"
-                >
-                  <Download className="h-5 w-5" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="text-white hover:bg-white/20 hover:text-white backdrop-blur-sm"
-                >
-                  <Share2 className="h-5 w-5" />
-                </Button>
-                <Button
-                  onClick={() => setShowSettings(!showSettings)}
-                  variant="ghost"
-                  size="icon"
-                  className={cn(
-                    "text-white hover:bg-white/20 hover:text-white backdrop-blur-sm",
-                    showSettings && "bg-white/20"
-                  )}
-                >
-                  <Settings className="h-5 w-5" />
-                </Button>
+                </div>
+
+                {/* Right Section */}
+                <div className="flex items-center gap-2">
+                  <Button
+                    onClick={() => setShowInfo(!showInfo)}
+                    variant="ghost"
+                    size="icon"
+                    className={cn(
+                      "text-white hover:bg-white/20",
+                      showInfo && "bg-white/20"
+                    )}
+                  >
+                    <Info className="h-5 w-5" />
+                  </Button>
+                  <Button
+                    onClick={onToggleFavorite}
+                    variant="ghost"
+                    size="icon"
+                    className={cn(
+                      "text-white hover:bg-white/20",
+                      isFavorite && "text-red-500"
+                    )}
+                  >
+                    <Heart className={cn("h-5 w-5", isFavorite && "fill-current")} />
+                  </Button>
+                  <div className="h-6 w-px bg-white/20" />
+                  <Button
+                    onClick={handleDownload}
+                    variant="ghost"
+                    size="icon"
+                    className="text-white hover:bg-white/20"
+                  >
+                    <Download className="h-5 w-5" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="text-white hover:bg-white/20"
+                  >
+                    <Share2 className="h-5 w-5" />
+                  </Button>
+                  <div className="h-6 w-px bg-white/20" />
+                  <Button
+                    onClick={() => setShowSettings(!showSettings)}
+                    variant="ghost"
+                    size="icon"
+                    className={cn(
+                      "text-white hover:bg-white/20",
+                      showSettings && "bg-white/20"
+                    )}
+                  >
+                    <Settings className="h-5 w-5" />
+                  </Button>
+                  <Button
+                    onClick={() => setIsFullscreen(!isFullscreen)}
+                    variant="ghost"
+                    size="icon"
+                    className="text-white hover:bg-white/20"
+                  >
+                    {isFullscreen ? <Minimize2 className="h-5 w-5" /> : <Maximize2 className="h-5 w-5" />}
+                  </Button>
+                </div>
               </div>
             </motion.div>
           )}
@@ -379,7 +502,7 @@ const AdvancedImageViewer: React.FC<AdvancedImageViewerProps> = ({
                     onClick={onPrevious}
                     variant="ghost"
                     size="icon"
-                    className="text-white hover:bg-white/20 hover:text-white backdrop-blur-sm w-12 h-12"
+                    className="text-white hover:bg-white/20 backdrop-blur-sm w-12 h-12 rounded-full"
                   >
                     <ChevronLeft className="h-6 w-6" />
                   </Button>
@@ -399,7 +522,7 @@ const AdvancedImageViewer: React.FC<AdvancedImageViewerProps> = ({
                     onClick={onNext}
                     variant="ghost"
                     size="icon"
-                    className="text-white hover:bg-white/20 hover:text-white backdrop-blur-sm w-12 h-12"
+                    className="text-white hover:bg-white/20 backdrop-blur-sm w-12 h-12 rounded-full"
                   >
                     <ChevronRight className="h-6 w-6" />
                   </Button>
@@ -418,12 +541,12 @@ const AdvancedImageViewer: React.FC<AdvancedImageViewerProps> = ({
               animate={{ y: 0, opacity: 1 }}
               exit={{ y: 20, opacity: 0 }}
             >
-              <div className="bg-black/40 backdrop-blur-md rounded-2xl p-3 border border-white/10 flex items-center gap-2">
+              <div className="bg-black/80 backdrop-blur-md rounded-2xl p-3 border border-white/10 flex items-center gap-2">
                 <Button
                   onClick={handleZoomOut}
                   variant="ghost"
                   size="icon"
-                  className="text-white hover:bg-white/20 hover:text-white"
+                  className="text-white hover:bg-white/20"
                 >
                   <ZoomOut className="h-4 w-4" />
                 </Button>
@@ -436,7 +559,7 @@ const AdvancedImageViewer: React.FC<AdvancedImageViewerProps> = ({
                   onClick={handleZoomIn}
                   variant="ghost"
                   size="icon"
-                  className="text-white hover:bg-white/20 hover:text-white"
+                  className="text-white hover:bg-white/20"
                 >
                   <ZoomIn className="h-4 w-4" />
                 </Button>
@@ -448,7 +571,7 @@ const AdvancedImageViewer: React.FC<AdvancedImageViewerProps> = ({
                   variant="ghost"
                   size="icon"
                   className={cn(
-                    "text-white hover:bg-white/20 hover:text-white",
+                    "text-white hover:bg-white/20",
                     flipHorizontal && "bg-white/20"
                   )}
                 >
@@ -460,7 +583,7 @@ const AdvancedImageViewer: React.FC<AdvancedImageViewerProps> = ({
                   variant="ghost"
                   size="icon"
                   className={cn(
-                    "text-white hover:bg-white/20 hover:text-white",
+                    "text-white hover:bg-white/20",
                     flipVertical && "bg-white/20"
                   )}
                 >
@@ -471,9 +594,47 @@ const AdvancedImageViewer: React.FC<AdvancedImageViewerProps> = ({
                   onClick={handleRotate}
                   variant="ghost"
                   size="icon"
-                  className="text-white hover:bg-white/20 hover:text-white"
+                  className="text-white hover:bg-white/20"
                 >
                   <RotateCw className="h-4 w-4" />
+                </Button>
+
+                <div className="w-px h-6 bg-white/20 mx-1" />
+
+                <Button
+                  onClick={() => setFitMode('fit')}
+                  variant="ghost"
+                  size="sm"
+                  className={cn(
+                    "text-white hover:bg-white/20 text-xs",
+                    fitMode === 'fit' && "bg-white/20"
+                  )}
+                >
+                  Fit
+                </Button>
+
+                <Button
+                  onClick={() => setFitMode('fill')}
+                  variant="ghost"
+                  size="sm"
+                  className={cn(
+                    "text-white hover:bg-white/20 text-xs",
+                    fitMode === 'fill' && "bg-white/20"
+                  )}
+                >
+                  Fill
+                </Button>
+
+                <Button
+                  onClick={() => setFitMode('actual')}
+                  variant="ghost"
+                  size="sm"
+                  className={cn(
+                    "text-white hover:bg-white/20 text-xs",
+                    fitMode === 'actual' && "bg-white/20"
+                  )}
+                >
+                  1:1
                 </Button>
 
                 <div className="w-px h-6 bg-white/20 mx-1" />
@@ -482,17 +643,9 @@ const AdvancedImageViewer: React.FC<AdvancedImageViewerProps> = ({
                   onClick={resetTransform}
                   variant="ghost"
                   size="sm"
-                  className="text-white hover:bg-white/20 hover:text-white text-xs"
+                  className="text-white hover:bg-white/20 text-xs"
                 >
                   Reset
-                </Button>
-
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="text-white hover:bg-white/20 hover:text-white"
-                >
-                  <Maximize className="h-4 w-4" />
                 </Button>
               </div>
             </motion.div>
@@ -503,72 +656,103 @@ const AdvancedImageViewer: React.FC<AdvancedImageViewerProps> = ({
         <AnimatePresence>
           {showSettings && (
             <motion.div
-              className="absolute top-16 right-4 bg-black/90 backdrop-blur-md rounded-xl p-6 border border-white/10 min-w-[300px] max-h-[600px] overflow-y-auto z-10"
+              className="absolute top-16 right-4 bg-black/90 backdrop-blur-md rounded-xl p-6 border border-white/10 min-w-[320px] max-h-[600px] overflow-y-auto z-10"
               initial={{ opacity: 0, scale: 0.9, y: -10 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.9, y: -10 }}
             >
               <h3 className="text-white font-semibold mb-4 flex items-center gap-2">
                 <Settings className="h-5 w-5" />
-                Image Adjustments
+                Image Settings
               </h3>
               
               <div className="space-y-4">
-                <CustomSlider
-                  label="Brightness"
-                  value={brightness}
-                  onChange={setBrightness}
-                  min={0}
-                  max={200}
-                />
-                
-                <CustomSlider
-                  label="Contrast"
-                  value={contrast}
-                  onChange={setContrast}
-                  min={0}
-                  max={200}
-                />
-                
-                <CustomSlider
-                  label="Saturation"
-                  value={saturation}
-                  onChange={setSaturation}
-                  min={0}
-                  max={200}
-                />
-                
-                <CustomSlider
-                  label="Hue"
-                  value={hue}
-                  onChange={setHue}
-                  min={-180}
-                  max={180}
-                />
-                
-                <CustomSlider
-                  label="Blur"
-                  value={blur}
-                  onChange={setBlur}
-                  min={0}
-                  max={10}
-                />
-                
-                <CustomSlider
-                  label="Sepia"
-                  value={sepia}
-                  onChange={setSepia}
-                  min={0}
-                  max={100}
-                />
-                
-                <CustomSlider
-                  label="Grayscale"
-                  value={grayscale}
-                  onChange={setGrayscale}
-                  min={0}
-                  max={100}
-                />
+                <div>
+                  <h4 className="text-white/80 font-medium mb-3">Color Adjustments</h4>
+                  <div className="space-y-3">
+                    <CustomSlider
+                      label="Brightness"
+                      value={brightness}
+                      onChange={setBrightness}
+                      min={0}
+                      max={200}
+                    />
+                    
+                    <CustomSlider
+                      label="Contrast"
+                      value={contrast}
+                      onChange={setContrast}
+                      min={0}
+                      max={200}
+                    />
+                    
+                    <CustomSlider
+                      label="Saturation"
+                      value={saturation}
+                      onChange={setSaturation}
+                      min={0}
+                      max={200}
+                    />
+                    
+                    <CustomSlider
+                      label="Hue"
+                      value={hue}
+                      onChange={setHue}
+                      min={-180}
+                      max={180}
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <h4 className="text-white/80 font-medium mb-3">Effects</h4>
+                  <div className="space-y-3">
+                    <CustomSlider
+                      label="Blur"
+                      value={blur}
+                      onChange={setBlur}
+                      min={0}
+                      max={10}
+                    />
+                    
+                    <CustomSlider
+                      label="Sepia"
+                      value={sepia}
+                      onChange={setSepia}
+                      min={0}
+                      max={100}
+                    />
+                    
+                    <CustomSlider
+                      label="Grayscale"
+                      value={grayscale}
+                      onChange={setGrayscale}
+                      min={0}
+                      max={100}
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <h4 className="text-white/80 font-medium mb-3">Slideshow</h4>
+                  <div className="space-y-3">
+                    <CustomSlider
+                      label="Interval (seconds)"
+                      value={slideshowInterval / 1000}
+                      onChange={(value) => setSlideshowInterval(value * 1000)}
+                      min={1}
+                      max={10}
+                    />
+                    
+                    <CustomSlider
+                      label="Background Opacity"
+                      value={backgroundOpacity}
+                      onChange={setBackgroundOpacity}
+                      min={50}
+                      max={100}
+                    />
+                  </div>
+                </div>
 
                 <div className="flex gap-2 pt-4">
                   <Button
@@ -577,7 +761,15 @@ const AdvancedImageViewer: React.FC<AdvancedImageViewerProps> = ({
                     size="sm"
                     className="flex-1 text-white hover:bg-white/10"
                   >
-                    Reset All
+                    Reset Colors
+                  </Button>
+                  <Button
+                    onClick={() => setShowToolbar(!showToolbar)}
+                    variant="ghost"
+                    size="sm"
+                    className="flex-1 text-white hover:bg-white/10"
+                  >
+                    {showToolbar ? 'Hide' : 'Show'} Toolbar
                   </Button>
                 </div>
               </div>
@@ -589,12 +781,12 @@ const AdvancedImageViewer: React.FC<AdvancedImageViewerProps> = ({
         <AnimatePresence>
           {showInfo && (
             <motion.div
-              className="absolute top-16 left-4 bg-black/90 backdrop-blur-md rounded-xl p-4 border border-white/10 min-w-[250px] z-10"
+              className="absolute top-16 left-4 bg-black/90 backdrop-blur-md rounded-xl p-4 border border-white/10 min-w-[280px] z-10"
               initial={{ opacity: 0, scale: 0.9, y: -10 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.9, y: -10 }}
             >
-              <h3 className="text-white font-semibold mb-3">Image Info</h3>
+              <h3 className="text-white font-semibold mb-3">Image Information</h3>
               <div className="space-y-2 text-sm">
                 <div className="flex justify-between text-white/70">
                   <span>Name:</span>
@@ -609,6 +801,10 @@ const AdvancedImageViewer: React.FC<AdvancedImageViewerProps> = ({
                   <span className="text-white">{rotation}°</span>
                 </div>
                 <div className="flex justify-between text-white/70">
+                  <span>Fit Mode:</span>
+                  <span className="text-white capitalize">{fitMode}</span>
+                </div>
+                <div className="flex justify-between text-white/70">
                   <span>Flipped:</span>
                   <span className="text-white">
                     {flipHorizontal || flipVertical 
@@ -617,6 +813,12 @@ const AdvancedImageViewer: React.FC<AdvancedImageViewerProps> = ({
                     }
                   </span>
                 </div>
+                {slideshow && (
+                  <div className="flex justify-between text-white/70">
+                    <span>Slideshow:</span>
+                    <span className="text-green-400">Active</span>
+                  </div>
+                )}
               </div>
             </motion.div>
           )}
@@ -625,20 +827,29 @@ const AdvancedImageViewer: React.FC<AdvancedImageViewerProps> = ({
         {/* Image Container */}
         <div
           ref={containerRef}
-          className="absolute inset-0 flex items-center justify-center overflow-hidden"
+          className={cn(
+            "absolute inset-0 flex items-center justify-center overflow-hidden",
+            showToolbar ? "top-16" : "top-0"
+          )}
           onWheel={handleWheel}
           onMouseDown={handleMouseDown}
-          style={{ cursor: zoom > 1 ? (isDragging ? 'grabbing' : 'grab') : 'default' }}
+          onDoubleClick={handleDoubleClick}
+          style={{ cursor: zoom > 1 || fitMode === 'actual' ? (isDragging ? 'grabbing' : 'grab') : 'default' }}
         >
           <motion.img
             ref={imageRef}
             src={src}
             alt={alt}
-            className="max-w-none max-h-none object-contain select-none"
+            className={cn(
+              "select-none transition-all duration-200",
+              fitMode === 'fit' && "max-w-full max-h-full object-contain",
+              fitMode === 'fill' && "w-full h-full object-cover",
+              fitMode === 'actual' && "max-w-none max-h-none"
+            )}
             style={{
               transform: `
                 translate(${position.x}px, ${position.y}px) 
-                scale(${zoom}) 
+                scale(${fitMode === 'actual' ? zoom : fitMode === 'fit' ? 1 : 1}) 
                 rotate(${rotation}deg)
                 scaleX(${flipHorizontal ? -1 : 1})
                 scaleY(${flipVertical ? -1 : 1})
@@ -657,27 +868,61 @@ const AdvancedImageViewer: React.FC<AdvancedImageViewerProps> = ({
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.9 }}
-            onDoubleClick={zoom === 1 ? handleZoomIn : resetTransform}
             draggable={false}
           />
         </div>
 
-        {/* Thumbnail Strip */}
+        {/* Navigation Dots */}
         <AnimatePresence>
-          {images.length > 1 && showThumbnails && showControls && (
+          {images.length > 1 && showNavigationDots && showControls && (
             <motion.div
               className="absolute bottom-20 left-1/2 transform -translate-x-1/2 z-10"
               initial={{ y: 20, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
               exit={{ y: 20, opacity: 0 }}
             >
-              <div className="bg-black/40 backdrop-blur-md rounded-xl p-2 border border-white/10 flex gap-2 max-w-2xl overflow-x-auto">
+              <div className="flex gap-2">
+                {images.slice(Math.max(0, currentIndex - 5), currentIndex + 6).map((_, idx) => {
+                  const actualIndex = Math.max(0, currentIndex - 5) + idx;
+                  return (
+                    <button
+                      key={actualIndex}
+                      className={cn(
+                        "w-2 h-2 rounded-full transition-all",
+                        actualIndex === currentIndex ? "bg-white" : "bg-white/40"
+                      )}
+                      onClick={() => {
+                        const diff = actualIndex - currentIndex;
+                        if (diff > 0) {
+                          for (let i = 0; i < diff; i++) onNext?.();
+                        } else if (diff < 0) {
+                          for (let i = 0; i < Math.abs(diff); i++) onPrevious?.();
+                        }
+                      }}
+                    />
+                  );
+                })}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Thumbnail Strip */}
+        <AnimatePresence>
+          {images.length > 1 && showThumbnails && showControls && (
+            <motion.div
+              className="absolute bottom-32 left-1/2 transform -translate-x-1/2 z-10"
+              initial={{ y: 20, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: 20, opacity: 0 }}
+            >
+              <div className="bg-black/80 backdrop-blur-md rounded-xl p-3 border border-white/10 flex gap-2 max-w-2xl overflow-x-auto">
                 {images.map((image, idx) => (
                   <div
                     key={idx}
                     className={cn(
-                      "w-16 h-16 rounded-lg overflow-hidden border-2 cursor-pointer flex-shrink-0",
-                      idx === currentIndex ? "border-white" : "border-white/20"
+                      "w-16 h-16 rounded-lg overflow-hidden border-2 cursor-pointer flex-shrink-0 transition-all",
+                      idx === currentIndex ? "border-white scale-110" : "border-white/20 hover:border-white/60"
                     )}
                     onClick={() => {
                       const diff = idx - currentIndex;
@@ -695,6 +940,22 @@ const AdvancedImageViewer: React.FC<AdvancedImageViewerProps> = ({
                     />
                   </div>
                 ))}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Slideshow Indicator */}
+        <AnimatePresence>
+          {slideshow && (
+            <motion.div
+              className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-10 pointer-events-none"
+              initial={{ opacity: 0, scale: 0.8 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.8 }}
+            >
+              <div className="bg-black/80 backdrop-blur-md rounded-full p-4 border border-white/10">
+                <Zap className="h-8 w-8 text-white animate-pulse" />
               </div>
             </motion.div>
           )}

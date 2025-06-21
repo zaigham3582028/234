@@ -30,7 +30,7 @@ const AICategorizationPanel: React.FC<AICategorizationPanelProps> = ({
   isOpen,
   onClose
 }) => {
-  const { files, addCategory, batchAddTags } = useAppStore();
+  const { files, addCategory, batchAddTags, autoCategorizeBySingers, autoCategorizeByContent } = useAppStore();
   const [apiKey, setApiKey] = useState('');
   const [model, setModel] = useState('gpt-3.5-turbo');
   const [isProcessing, setIsProcessing] = useState(false);
@@ -58,7 +58,6 @@ const AICategorizationPanel: React.FC<AICategorizationPanelProps> = ({
     setResults(null);
 
     try {
-      const aiService = new AIService({ apiKey, model });
       const newResults = {
         categories: [] as CategorySuggestion[],
         tags: {} as {[fileId: string]: string[]},
@@ -68,8 +67,12 @@ const AICategorizationPanel: React.FC<AICategorizationPanelProps> = ({
       // Process artist categorization
       if (selectedOperations.artistCategories) {
         setProgress(25);
+        const aiService = new AIService({ apiKey: apiKey || 'dummy', model });
         const artistCategories = await aiService.categorizeByArtist(files);
         newResults.artists = artistCategories;
+        
+        // Apply artist categories to store
+        autoCategorizeBySingers();
       }
 
       // Process auto-tagging
@@ -78,10 +81,10 @@ const AICategorizationPanel: React.FC<AICategorizationPanelProps> = ({
         for (let i = 0; i < files.length; i++) {
           const file = files[i];
           try {
-            // Simple filename-based tagging for now
+            // Simple filename-based tagging
             const tags = file.name.toLowerCase()
               .split(/[._-\s]+/)
-              .filter(tag => tag.length > 2)
+              .filter(tag => tag.length > 2 && !['mp4', 'jpg', 'png', 'mp3', 'pdf', 'zip'].includes(tag))
               .slice(0, 5);
             
             newResults.tags[file.id] = tags;
@@ -92,9 +95,15 @@ const AICategorizationPanel: React.FC<AICategorizationPanelProps> = ({
         }
       }
 
+      // Process auto categories
+      if (selectedOperations.autoCategories) {
+        setProgress(75);
+        autoCategorizeByContent();
+      }
+
       // Process content analysis (if API key provided)
       if (selectedOperations.contentAnalysis && apiKey) {
-        setProgress(75);
+        setProgress(90);
         // This would require actual file content analysis
         // For now, we'll simulate it
         await new Promise(resolve => setTimeout(resolve, 1000));
@@ -112,19 +121,6 @@ const AICategorizationPanel: React.FC<AICategorizationPanelProps> = ({
 
   const handleApplyResults = () => {
     if (!results) return;
-
-    // Apply artist categories
-    Object.entries(results.artists).forEach(([artist, fileIds]) => {
-      if (fileIds.length > 0) {
-        addCategory({
-          name: artist,
-          icon: 'music',
-          count: fileIds.length,
-          color: '#3b82f6',
-          rules: [artist.toLowerCase()]
-        });
-      }
-    });
 
     // Apply tags
     Object.entries(results.tags).forEach(([fileId, tags]) => {

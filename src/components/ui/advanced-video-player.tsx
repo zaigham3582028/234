@@ -29,7 +29,14 @@ import {
   Monitor,
   Headphones,
   Eye,
-  EyeOff
+  EyeOff,
+  MousePointer,
+  Repeat,
+  Shuffle,
+  FastForward,
+  Rewind,
+  Square,
+  X
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
@@ -67,13 +74,37 @@ const CustomSlider = ({
   className,
   disabled = false,
   markers = [],
+  onHover,
 }: {
   value: number;
   onChange: (value: number) => void;
   className?: string;
   disabled?: boolean;
   markers?: number[];
+  onHover?: (value: number | null) => void;
 }) => {
+  const [isDragging, setIsDragging] = useState(false);
+  const [hoverValue, setHoverValue] = useState<number | null>(null);
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const percentage = (x / rect.width) * 100;
+    const clampedValue = Math.min(Math.max(percentage, 0), 100);
+    
+    if (isDragging) {
+      onChange(clampedValue);
+    } else {
+      setHoverValue(clampedValue);
+      onHover?.(clampedValue);
+    }
+  };
+
+  const handleMouseLeave = () => {
+    setHoverValue(null);
+    onHover?.(null);
+  };
+
   return (
     <motion.div
       className={cn(
@@ -88,6 +119,10 @@ const CustomSlider = ({
         const percentage = (x / rect.width) * 100;
         onChange(Math.min(Math.max(percentage, 0), 100));
       }}
+      onMouseDown={() => setIsDragging(true)}
+      onMouseUp={() => setIsDragging(false)}
+      onMouseMove={handleMouseMove}
+      onMouseLeave={handleMouseLeave}
     >
       {/* Markers */}
       {markers.map((marker, index) => (
@@ -98,6 +133,7 @@ const CustomSlider = ({
         />
       ))}
       
+      {/* Progress */}
       <motion.div
         className="absolute top-0 left-0 h-full bg-gradient-to-r from-blue-500 to-purple-500 rounded-full"
         style={{ width: `${value}%` }}
@@ -106,6 +142,18 @@ const CustomSlider = ({
         transition={{ type: "spring", stiffness: 300, damping: 30 }}
       />
       
+      {/* Hover preview */}
+      {hoverValue !== null && (
+        <div
+          className="absolute top-0 h-full bg-white/30 rounded-full"
+          style={{ 
+            left: `${Math.min(value, hoverValue)}%`,
+            width: `${Math.abs(hoverValue - value)}%`
+          }}
+        />
+      )}
+      
+      {/* Handle */}
       <motion.div
         className="absolute w-4 h-4 bg-white rounded-full shadow-lg transform -translate-y-1 opacity-0 group-hover:opacity-100 transition-opacity"
         style={{ left: `${value}%`, transform: 'translateX(-50%) translateY(-25%)' }}
@@ -149,8 +197,27 @@ const AdvancedVideoPlayer: React.FC<AdvancedVideoPlayerProps> = ({
   const [saturation, setSaturation] = useState(100);
   const [chapters, setChapters] = useState<Array<{time: number, title: string}>>([]);
   const [bookmarks, setBookmarks] = useState<number[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [buffered, setBuffered] = useState(0);
+  const [showVolumeSlider, setShowVolumeSlider] = useState(false);
+  const [gestureStartPos, setGestureStartPos] = useState<{x: number, y: number} | null>(null);
+  const [gestureAction, setGestureAction] = useState<'volume' | 'brightness' | 'seek' | null>(null);
+  const [previewTime, setPreviewTime] = useState<number | null>(null);
 
-  const { addFavoriteClip, tags } = useAppStore();
+  // Auto-hide controls
+  const hideControlsTimer = useRef<NodeJS.Timeout>();
+
+  const { addFavoriteClip, tags, preferences } = useAppStore();
+
+  const resetHideTimer = useCallback(() => {
+    if (hideControlsTimer.current) {
+      clearTimeout(hideControlsTimer.current);
+    }
+    setShowControls(true);
+    hideControlsTimer.current = setTimeout(() => {
+      setShowControls(false);
+    }, 3000);
+  }, []);
 
   useEffect(() => {
     const handleFullscreenChange = () => {
@@ -160,6 +227,8 @@ const AdvancedVideoPlayer: React.FC<AdvancedVideoPlayerProps> = ({
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!videoRef.current) return;
       
+      resetHideTimer();
+      
       switch (e.key) {
         case ' ':
           e.preventDefault();
@@ -167,11 +236,19 @@ const AdvancedVideoPlayer: React.FC<AdvancedVideoPlayerProps> = ({
           break;
         case 'ArrowLeft':
           e.preventDefault();
-          skipBackward();
+          if (e.shiftKey) {
+            skipBackward(30);
+          } else {
+            skipBackward();
+          }
           break;
         case 'ArrowRight':
           e.preventDefault();
-          skipForward();
+          if (e.shiftKey) {
+            skipForward(30);
+          } else {
+            skipForward();
+          }
           break;
         case 'ArrowUp':
           e.preventDefault();
@@ -182,6 +259,7 @@ const AdvancedVideoPlayer: React.FC<AdvancedVideoPlayerProps> = ({
           handleVolumeChange(Math.max(volume * 100 - 10, 0));
           break;
         case 'f':
+        case 'F11':
           e.preventDefault();
           toggleFullscreen();
           break;
@@ -196,17 +274,57 @@ const AdvancedVideoPlayer: React.FC<AdvancedVideoPlayerProps> = ({
             onClose?.();
           }
           break;
+        case 'Home':
+          e.preventDefault();
+          videoRef.current.currentTime = 0;
+          break;
+        case 'End':
+          e.preventDefault();
+          videoRef.current.currentTime = duration;
+          break;
+        case 'j':
+          skipBackward();
+          break;
+        case 'k':
+          togglePlay();
+          break;
+        case 'l':
+          skipForward();
+          break;
+        case ',':
+          if (isPlaying) {
+            videoRef.current.pause();
+            setIsPlaying(false);
+          }
+          videoRef.current.currentTime -= 1/30; // Frame by frame
+          break;
+        case '.':
+          if (isPlaying) {
+            videoRef.current.pause();
+            setIsPlaying(false);
+          }
+          videoRef.current.currentTime += 1/30; // Frame by frame
+          break;
       }
+    };
+
+    const handleMouseMove = () => {
+      resetHideTimer();
     };
 
     document.addEventListener('fullscreenchange', handleFullscreenChange);
     document.addEventListener('keydown', handleKeyDown);
+    document.addEventListener('mousemove', handleMouseMove);
     
     return () => {
       document.removeEventListener('fullscreenchange', handleFullscreenChange);
       document.removeEventListener('keydown', handleKeyDown);
+      document.removeEventListener('mousemove', handleMouseMove);
+      if (hideControlsTimer.current) {
+        clearTimeout(hideControlsTimer.current);
+      }
     };
-  }, [isFullscreen, volume, onClose]);
+  }, [isFullscreen, volume, onClose, isPlaying, duration, resetHideTimer]);
 
   const togglePlay = useCallback(() => {
     if (videoRef.current) {
@@ -234,6 +352,13 @@ const AdvancedVideoPlayer: React.FC<AdvancedVideoPlayerProps> = ({
       setProgress(isFinite(progress) ? progress : 0);
       setCurrentTime(videoRef.current.currentTime);
       setDuration(videoRef.current.duration);
+      
+      // Update buffered
+      if (videoRef.current.buffered.length > 0) {
+        const bufferedEnd = videoRef.current.buffered.end(videoRef.current.buffered.length - 1);
+        const bufferedProgress = (bufferedEnd / videoRef.current.duration) * 100;
+        setBuffered(isFinite(bufferedProgress) ? bufferedProgress : 0);
+      }
     }
   }, []);
 
@@ -244,6 +369,15 @@ const AdvancedVideoPlayer: React.FC<AdvancedVideoPlayerProps> = ({
         videoRef.current.currentTime = time;
         setProgress(value);
       }
+    }
+  }, []);
+
+  const handleProgressHover = useCallback((value: number | null) => {
+    if (value !== null && videoRef.current && videoRef.current.duration) {
+      const time = (value / 100) * videoRef.current.duration;
+      setPreviewTime(time);
+    } else {
+      setPreviewTime(null);
     }
   }, []);
 
@@ -278,15 +412,15 @@ const AdvancedVideoPlayer: React.FC<AdvancedVideoPlayerProps> = ({
     }
   }, [isFullscreen]);
 
-  const skipForward = useCallback(() => {
+  const skipForward = useCallback((seconds = 10) => {
     if (videoRef.current) {
-      videoRef.current.currentTime += 10;
+      videoRef.current.currentTime += seconds;
     }
   }, []);
 
-  const skipBackward = useCallback(() => {
+  const skipBackward = useCallback((seconds = 10) => {
     if (videoRef.current) {
-      videoRef.current.currentTime -= 10;
+      videoRef.current.currentTime -= seconds;
     }
   }, []);
 
@@ -342,37 +476,97 @@ const AdvancedVideoPlayer: React.FC<AdvancedVideoPlayerProps> = ({
     }
   }, []);
 
+  // Gesture handling
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    if (preferences.enableGestures) {
+      setGestureStartPos({ x: e.clientX, y: e.clientY });
+    }
+  }, [preferences.enableGestures]);
+
+  const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    if (gestureStartPos && preferences.enableGestures) {
+      const deltaX = e.clientX - gestureStartPos.x;
+      const deltaY = e.clientY - gestureStartPos.y;
+      
+      if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > 20) {
+        // Horizontal gesture - seek
+        setGestureAction('seek');
+        const seekAmount = deltaX / 5; // Adjust sensitivity
+        const newTime = Math.max(0, Math.min(duration, currentTime + seekAmount));
+        if (videoRef.current) {
+          videoRef.current.currentTime = newTime;
+        }
+      } else if (Math.abs(deltaY) > 20) {
+        // Vertical gesture
+        if (e.clientX < window.innerWidth / 2) {
+          // Left side - brightness
+          setGestureAction('brightness');
+          const brightnessChange = -deltaY / 2;
+          setBrightness(prev => Math.max(0, Math.min(200, prev + brightnessChange)));
+        } else {
+          // Right side - volume
+          setGestureAction('volume');
+          const volumeChange = -deltaY / 2;
+          handleVolumeChange(Math.max(0, Math.min(100, volume * 100 + volumeChange)));
+        }
+      }
+    }
+  }, [gestureStartPos, preferences.enableGestures, duration, currentTime, volume, handleVolumeChange]);
+
+  const handleMouseUp = useCallback(() => {
+    setGestureStartPos(null);
+    setGestureAction(null);
+  }, []);
+
+  const handleVideoClick = useCallback((e: React.MouseEvent) => {
+    if (e.detail === 1) {
+      // Single click - toggle play/pause
+      setTimeout(() => {
+        if (e.detail === 1) {
+          togglePlay();
+        }
+      }, 200);
+    } else if (e.detail === 2) {
+      // Double click - toggle fullscreen
+      toggleFullscreen();
+    }
+  }, [togglePlay, toggleFullscreen]);
+
   return (
     <motion.div
       ref={containerRef}
       className={cn(
         "relative w-full mx-auto rounded-xl overflow-hidden bg-black shadow-2xl",
-        isFullscreen ? "h-screen w-screen rounded-none" : "max-w-6xl"
+        isFullscreen ? "h-screen w-screen rounded-none" : "max-w-6xl aspect-video"
       )}
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5 }}
-      onMouseEnter={() => setShowControls(true)}
-      onMouseLeave={() => setShowControls(false)}
+      onMouseDown={handleMouseDown}
+      onMouseMove={handleMouseMove}
+      onMouseUp={handleMouseUp}
     >
       <video
         ref={videoRef}
         className="w-full h-full object-contain"
         onTimeUpdate={handleTimeUpdate}
         src={src}
-        onClick={togglePlay}
+        onClick={handleVideoClick}
         onLoadedMetadata={() => {
           if (videoRef.current) {
             setDuration(videoRef.current.duration);
+            setIsLoading(false);
           }
         }}
+        onLoadStart={() => setIsLoading(true)}
+        onCanPlay={() => setIsLoading(false)}
         style={{
           filter: `brightness(${brightness}%) contrast(${contrast}%) saturate(${saturation}%)`
         }}
       />
 
       {/* Loading overlay */}
-      {!duration && (
+      {isLoading && (
         <div className="absolute inset-0 flex items-center justify-center bg-black/20 backdrop-blur-sm">
           <motion.div
             className="w-16 h-16 border-4 border-white/30 border-t-white rounded-full"
@@ -381,6 +575,39 @@ const AdvancedVideoPlayer: React.FC<AdvancedVideoPlayerProps> = ({
           />
         </div>
       )}
+
+      {/* Gesture feedback */}
+      <AnimatePresence>
+        {gestureAction && (
+          <motion.div
+            className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-black/80 backdrop-blur-md rounded-lg p-4 pointer-events-none"
+            initial={{ opacity: 0, scale: 0.8 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.8 }}
+          >
+            <div className="text-white text-center">
+              {gestureAction === 'volume' && (
+                <>
+                  <Volume2 className="h-8 w-8 mx-auto mb-2" />
+                  <span>{Math.round(volume * 100)}%</span>
+                </>
+              )}
+              {gestureAction === 'brightness' && (
+                <>
+                  <Sun className="h-8 w-8 mx-auto mb-2" />
+                  <span>{brightness}%</span>
+                </>
+              )}
+              {gestureAction === 'seek' && (
+                <>
+                  <Clock className="h-8 w-8 mx-auto mb-2" />
+                  <span>{formatTime(currentTime)}</span>
+                </>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Clip marking overlay */}
       {isMarkingClip && (
@@ -413,14 +640,16 @@ const AdvancedVideoPlayer: React.FC<AdvancedVideoPlayerProps> = ({
             exit={{ y: -20, opacity: 0 }}
           >
             <div className="flex items-center gap-2">
-              <Button
-                onClick={onClose}
-                variant="ghost"
-                size="icon"
-                className="text-white hover:bg-white/20 hover:text-white backdrop-blur-sm"
-              >
-                <Minimize2 className="h-5 w-5" />
-              </Button>
+              {onClose && (
+                <Button
+                  onClick={onClose}
+                  variant="ghost"
+                  size="icon"
+                  className="text-white hover:bg-white/20 hover:text-white backdrop-blur-sm"
+                >
+                  <X className="h-5 w-5" />
+                </Button>
+              )}
               <span className="text-white/70 text-sm">
                 {formatTime(currentTime)} / {formatTime(duration)}
               </span>
@@ -495,9 +724,15 @@ const AdvancedVideoPlayer: React.FC<AdvancedVideoPlayerProps> = ({
                   {formatTime(currentTime)}
                 </span>
                 <div className="flex-1 relative">
+                  {/* Buffered progress */}
+                  <div 
+                    className="absolute top-0 left-0 h-2 bg-white/30 rounded-full"
+                    style={{ width: `${buffered}%` }}
+                  />
                   <CustomSlider
                     value={progress}
                     onChange={handleSeek}
+                    onHover={handleProgressHover}
                     className="h-2"
                     markers={bookmarks.map(b => (b / duration) * 100)}
                   />
@@ -510,6 +745,15 @@ const AdvancedVideoPlayer: React.FC<AdvancedVideoPlayerProps> = ({
                       }}
                     />
                   )}
+                  {/* Preview tooltip */}
+                  {previewTime !== null && (
+                    <div 
+                      className="absolute -top-8 bg-black/80 text-white text-xs px-2 py-1 rounded transform -translate-x-1/2"
+                      style={{ left: `${(previewTime / duration) * 100}%` }}
+                    >
+                      {formatTime(previewTime)}
+                    </div>
+                  )}
                 </div>
                 <span className="text-white text-sm font-medium min-w-[60px]">
                   {formatTime(duration)}
@@ -520,7 +764,16 @@ const AdvancedVideoPlayer: React.FC<AdvancedVideoPlayerProps> = ({
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <Button
-                    onClick={skipBackward}
+                    onClick={() => skipBackward(30)}
+                    variant="ghost"
+                    size="icon"
+                    className="text-white hover:bg-white/20 hover:text-white"
+                  >
+                    <Rewind className="h-5 w-5" />
+                  </Button>
+                  
+                  <Button
+                    onClick={() => skipBackward()}
                     variant="ghost"
                     size="icon"
                     className="text-white hover:bg-white/20 hover:text-white"
@@ -542,7 +795,7 @@ const AdvancedVideoPlayer: React.FC<AdvancedVideoPlayerProps> = ({
                   </Button>
 
                   <Button
-                    onClick={skipForward}
+                    onClick={() => skipForward()}
                     variant="ghost"
                     size="icon"
                     className="text-white hover:bg-white/20 hover:text-white"
@@ -550,9 +803,19 @@ const AdvancedVideoPlayer: React.FC<AdvancedVideoPlayerProps> = ({
                     <SkipForward className="h-5 w-5" />
                   </Button>
 
-                  <div className="flex items-center gap-2 ml-4">
+                  <Button
+                    onClick={() => skipForward(30)}
+                    variant="ghost"
+                    size="icon"
+                    className="text-white hover:bg-white/20 hover:text-white"
+                  >
+                    <FastForward className="h-5 w-5" />
+                  </Button>
+
+                  <div className="flex items-center gap-2 ml-4 relative">
                     <Button
                       onClick={toggleMute}
+                      onMouseEnter={() => setShowVolumeSlider(true)}
                       variant="ghost"
                       size="icon"
                       className="text-white hover:bg-white/20 hover:text-white"
@@ -566,12 +829,22 @@ const AdvancedVideoPlayer: React.FC<AdvancedVideoPlayerProps> = ({
                       )}
                     </Button>
 
-                    <div className="w-24">
-                      <CustomSlider
-                        value={volume * 100}
-                        onChange={handleVolumeChange}
-                      />
-                    </div>
+                    <AnimatePresence>
+                      {showVolumeSlider && (
+                        <motion.div
+                          className="w-24"
+                          initial={{ opacity: 0, width: 0 }}
+                          animate={{ opacity: 1, width: 96 }}
+                          exit={{ opacity: 0, width: 0 }}
+                          onMouseLeave={() => setShowVolumeSlider(false)}
+                        >
+                          <CustomSlider
+                            value={volume * 100}
+                            onChange={handleVolumeChange}
+                          />
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
                   </div>
                 </div>
 
@@ -711,6 +984,25 @@ const AdvancedVideoPlayer: React.FC<AdvancedVideoPlayerProps> = ({
                   )}
                 >
                   {showSubtitles ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+                </Button>
+              </div>
+
+              {/* Gestures */}
+              <div className="flex items-center justify-between">
+                <span className="text-white/70 text-sm">Mouse Gestures</span>
+                <Button
+                  onClick={() => {
+                    // This would update the global preferences
+                    console.log('Toggle gestures');
+                  }}
+                  variant="ghost"
+                  size="sm"
+                  className={cn(
+                    "text-white hover:bg-white/20",
+                    preferences.enableGestures && "bg-white/20"
+                  )}
+                >
+                  {preferences.enableGestures ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
                 </Button>
               </div>
             </div>
