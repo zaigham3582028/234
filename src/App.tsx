@@ -15,6 +15,7 @@ import AdvancedImageViewer from './components/ui/advanced-image-viewer';
 import FavoriteClipsViewer from './components/ui/favorite-clips-viewer';
 import AdvancedCategorization from './components/ui/advanced-categorization';
 import AICategorizationPanel from './components/ai/AICategorizationPanel';
+import SettingsPanel from './components/settings/SettingsPanel';
 
 import { useAppStore } from './store/useAppStore';
 import { FileItem } from './components/file-grid/file-card';
@@ -50,6 +51,7 @@ function App() {
   const [showCategorization, setShowCategorization] = useState(false);
   const [showAICategorization, setShowAICategorization] = useState(false);
   const [showAnalytics, setShowAnalytics] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
 
   const imageFiles = files.filter(file => file.type === 'image');
@@ -67,6 +69,7 @@ function App() {
     setShowFavoriteClips(false);
     setShowCategorization(false);
     setShowAICategorization(false);
+    setShowSettings(false);
   });
 
   useHotkeys('ctrl+f', (e) => {
@@ -179,7 +182,7 @@ function App() {
     }
   };
 
-  // Filter files based on selected category
+  // Filter files based on selected category - Fixed to show files properly
   const filteredFiles = React.useMemo(() => {
     let filtered = files;
 
@@ -206,7 +209,7 @@ function App() {
           break;
         case 'fav-parts':
           setShowFavoriteClips(true);
-          return [];
+          return files; // Return all files, don't filter to empty
         case 'recent':
           const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
           filtered = filtered.filter(file => file.modifiedAt > dayAgo);
@@ -231,8 +234,17 @@ function App() {
       }
     }
 
+    // Apply search filter
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      filtered = filtered.filter(file =>
+        file.name.toLowerCase().includes(query) ||
+        file.tags.some(tag => tag.toLowerCase().includes(query))
+      );
+    }
+
     return filtered;
-  }, [files, selectedCategoryId, categories]);
+  }, [files, selectedCategoryId, categories, searchQuery]);
 
   return (
     <DndProvider backend={HTML5Backend}>
@@ -264,6 +276,7 @@ function App() {
               searchQuery={searchQuery}
               onSearchChange={setSearchQuery}
               selectedCount={selectedFiles.size}
+              onShowSettings={() => setShowSettings(true)}
             />
 
             {/* Content Area */}
@@ -356,6 +369,16 @@ function App() {
             <AICategorizationPanel
               isOpen={showAICategorization}
               onClose={() => setShowAICategorization(false)}
+            />
+          )}
+        </AnimatePresence>
+
+        {/* Settings Panel */}
+        <AnimatePresence>
+          {showSettings && (
+            <SettingsPanel
+              isOpen={showSettings}
+              onClose={() => setShowSettings(false)}
             />
           )}
         </AnimatePresence>

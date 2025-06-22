@@ -301,8 +301,8 @@ const sampleFiles: FileItem[] = [
 
 export const useAppStore = create<AppState>()(
   immer((set, get) => ({
-    // Initial State
-    files: sampleFiles,
+    // Initial State - Remove dummy data
+    files: [],
     selectedFiles: new Set(),
     favoriteClips: [],
     categories: [],
@@ -316,8 +316,8 @@ export const useAppStore = create<AppState>()(
     sortOrder: 'asc',
     preferences: defaultPreferences,
     analytics: {
-      totalFiles: sampleFiles.length,
-      totalSize: sampleFiles.reduce((sum, file) => sum + file.size, 0),
+      totalFiles: 0,
+      totalSize: 0,
       mostUsedTags: ['music', 'bollywood', 'nature'],
       recentActivity: [],
     },

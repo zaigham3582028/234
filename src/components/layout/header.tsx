@@ -26,6 +26,7 @@ interface HeaderProps {
   searchQuery: string;
   onSearchChange: (query: string) => void;
   selectedCount: number;
+  onShowSettings?: () => void;
 }
 
 const Header: React.FC<HeaderProps> = ({
@@ -35,7 +36,8 @@ const Header: React.FC<HeaderProps> = ({
   onRefresh,
   searchQuery,
   onSearchChange,
-  selectedCount
+  selectedCount,
+  onShowSettings
 }) => {
   const [showUploadModal, setShowUploadModal] = useState(false);
 
@@ -161,6 +163,7 @@ const Header: React.FC<HeaderProps> = ({
           </Button>
 
           <Button
+            onClick={onShowSettings}
             variant="ghost"
             size="icon"
             className="text-white/70 hover:bg-white/10 hover:text-white"

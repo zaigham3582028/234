@@ -100,7 +100,7 @@ const FileUploadZone: React.FC<FileUploadZoneProps> = ({
       return new Promise((resolve) => {
         const reader = new FileReader();
         reader.onload = (e) => {
-          const img = new Image();
+          const img = document.createElement('img');
           img.onload = () => {
             const canvas = document.createElement('canvas');
             const ctx = canvas.getContext('2d');
